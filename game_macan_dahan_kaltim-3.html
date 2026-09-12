@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MACAN DAHAN — Penjaga Hutan Kaltim</title>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#071b16;color:#f5f1d6;overflow-x:hidden}
+#wrap{max-width:1050px;margin:auto;padding:18px}
+header{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+h1{margin:0;font-size:clamp(28px,5vw,52px);letter-spacing:2px;color:#f6c85f;text-shadow:0 4px 0 #173c2d}
+.sub{opacity:.8}
+.panel{background:linear-gradient(145deg,#12382b,#0b241d);border:2px solid #356b50;border-radius:22px;padding:14px;box-shadow:0 15px 40px #0008}
+.stats{display:flex;gap:9px;flex-wrap:wrap}.stat{padding:9px 13px;border-radius:14px;background:#071712;border:1px solid #315b46}
+#game{position:relative;margin-top:15px;height:min(68vh,590px);min-height:440px;overflow:hidden;border-radius:25px;border:3px solid #467b58;background:#123b2b}
+canvas{width:100%;height:100%;display:block}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;background:#03120dcc;padding:25px;z-index:5}
+.card{max-width:640px;background:#102d22ee;border:2px solid #f0c35c;border-radius:24px;padding:25px;box-shadow:0 20px 70px #000}
+button{border:0;border-radius:14px;padding:12px 18px;font-weight:800;background:#f2c65b;color:#172016;cursor:pointer;box-shadow:0 5px 0 #9a6d20}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #9a6d20}
+.controls{display:flex;justify-content:center;gap:12px;margin-top:12px;flex-wrap:wrap}.ctrl{width:78px;height:58px;font-size:25px;touch-action:none}
+.hint{margin-top:12px;color:#cce8c6;text-align:center}
+.badge{color:#ffdb70;font-weight:900}
+.small{font-size:13px;opacity:.75}
+</style>
+</head>
+<body>
+<div id="wrap">
+<header>
+ <div><div class="sub">FAUNA KHAS KALIMANTAN • GAME TANTANGAN</div><h1>🐆 MACAN DAHAN</h1></div>
+ <div class="stats">
+  <div class="stat">❤️ <span id="hp">3</span></div>
+  <div class="stat">⭐ <span id="score">0</span></div>
+  <div class="stat">🌿 <span id="leaf">0</span></div>
+  <div class="stat">🏆 Rekor <span id="best">0</span></div>
+ </div>
+</header>
+
+<div id="game" class="panel">
+ <canvas id="c"></canvas>
+ <div class="overlay" id="menu">
+  <div class="card">
+   <div style="font-size:72px">🐆</div>
+   <h2>JELAJAHI HUTAN KALTIM!</h2>
+   <p>Gerakkan Macan Dahan melewati batang pohon, jebakan pemburu, kelelawar, dan jurang. Ambil <b>daun emas</b> untuk poin bonus.</p>
+   <p class="badge">MODE SULIT • mendekati 1000 skor makin cepat! 🔥</p>
+   <button id="start">MULAI PERBURUAN</button>
+   <p class="small">Keyboard: ← → / A D • Lompat: Spasi / ↑ • HP habis = kalah</p>
+  </div>
+ </div>
+</div>
+<div class="controls">
+ <button class="ctrl" id="left">◀</button><button class="ctrl" id="jump">⬆</button><button class="ctrl" id="right">▶</button>
+</div>
+<div class="hint">Tip: lompati jebakan dan ambil daun emas. <b>Jangan terlalu serakah!</b> 😹</div>
+</div>
+
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let W,H,dpr,run=false,last=0,score=0,hp=3,leaf=0,best=+localStorage.bestMacanDahan||0;
+let player,obs,items,particles,worldX,speed,spawnT,itemT,keys={};
+const $=id=>document.getElementById(id); $('best').textContent=best;
+
+function resize(){dpr=devicePixelRatio||1; W=cv.clientWidth;H=cv.clientHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+
+function reset(){
+ score=0;hp=3;leaf=0;worldX=0;speed=260;spawnT=0;itemT=1;
+ player={x:110,y:H-150,w:70,h:70,vy:0,on:false,inv:0};
+ obs=[];items=[];particles=[];
+ updateUI();
+}
+function updateUI(){ $('hp').textContent=hp;$('score').textContent=Math.floor(score);$('leaf').textContent=leaf;$('best').textContent=best}
+function start(){reset();run=true;$('menu').style.display='none';last=performance.now();requestAnimationFrame(loop)}
+$('start').onclick=start;
+
+function jump(){if(run&&player.on){player.vy=-680;player.on=false}}
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if([' ','arrowup'].includes(e.key.toLowerCase())){e.preventDefault();jump()}});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+[['left','arrowleft'],['right','arrowright']].forEach(([id,k])=>{
+ const b=$(id);b.onpointerdown=()=>keys[k]=true;b.onpointerup=b.onpointercancel=()=>keys[k]=false;
+});$('jump').onpointerdown=jump;
+
+function spawnObstacle(){
+ const ground=H-72, type=Math.random();
+ if(type<.52) obs.push({x:W+50,y:ground-55,w:42,h:55,t:'log'});
+ else if(type<.82) obs.push({x:W+50,y:ground-120-Math.random()*40,w:45,h:35,t:'bat',vy:Math.random()*90-45});
+ else obs.push({x:W+50,y:ground-30,w:70,h:30,t:'trap'});
+}
+function spawnItem(){items.push({x:W+50,y:H-145-Math.random()*180,r:14,spin:0})}
+
+function hit(a,b){return a.x+12<b.x+b.w-6&&a.x+a.w-12>b.x+6&&a.y+10<b.y+b.h-4&&a.y+a.h-8>b.y+5}
+function addBurst(x,y){for(let i=0;i<10;i++)particles.push({x,y,vx:Math.random()*240-120,vy:Math.random()*-220,life:.5})}
+
+function update(dt){
+ // Kecepatan naik bertahap, lalu menjadi jauh lebih cepat saat mendekati 1000 skor.
+const targetSpeed = score >= 1000 ? 620 : 260 + (score / 1000) * 170;
+speed += (targetSpeed - speed) * Math.min(1, dt * 2.5);
+worldX+=speed*dt; score+=dt*8;
+ if(keys['arrowleft']||keys['a'])player.x-=330*dt;
+ if(keys['arrowright']||keys['d'])player.x+=330*dt;
+ player.x=Math.max(25,Math.min(W-95,player.x));
+ player.vy+=1650*dt;player.y+=player.vy*dt;
+ const ground=H-72;
+ if(player.y+player.h>=ground){player.y=ground-player.h;player.vy=0;player.on=true}
+ player.inv=Math.max(0,player.inv-dt);
+
+ spawnT-=dt;if(spawnT<=0){spawnObstacle();spawnT=Math.max(score>=1000 ? .32 : .48,1.08-(speed-260)/600)+Math.random()*.35}
+ itemT-=dt;if(itemT<=0){spawnItem();itemT=1.1+Math.random()*1.4}
+
+ obs.forEach(o=>{o.x-=speed*dt;if(o.t==='bat')o.y+=Math.sin(performance.now()/220+o.x)*25*dt});
+ items.forEach(i=>{i.x-=speed*dt;i.spin+=dt*7});
+ obs=obs.filter(o=>o.x>-120);items=items.filter(i=>i.x>-80);
+
+ for(const o of obs){
+  if(hit(player,o)&&player.inv<=0){hp--;player.inv=1.2;addBurst(player.x+35,player.y+35);o.x=-200;updateUI();if(hp<=0)return gameOver()}
+ }
+ for(const i of items){let dx=player.x+35-i.x,dy=player.y+35-i.y;if(dx*dx+dy*dy<48*48){i.x=-200;leaf++;score+=80;addBurst(i.x,i.y);updateUI()}}
+ particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=500*dt;p.life-=dt});particles=particles.filter(p=>p.life>0);
+ updateUI();
+}
+function gameOver(){
+ run=false;best=Math.max(best,Math.floor(score));localStorage.bestMacanDahan=best;$('best').textContent=best;
+ $('menu').style.display='flex';$('menu').querySelector('h2').textContent='😿 PETUALANGANNYA SELESAI!';
+ $('menu').querySelector('p').innerHTML=`Skor kamu <b>${Math.floor(score)}</b> • Daun emas <b>${leaf}</b><br>Rekor: <b>${best}</b>. Berani coba lagi?`;
+ $('start').textContent='MAIN LAGI';
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ // sky
+ let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b3028');g.addColorStop(1,'#1a4b31');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // moon
+ ctx.fillStyle='#e9d77b';ctx.beginPath();ctx.arc(W-90,80,36,0,7);ctx.fill();
+ // distant jungle
+ for(let x=-100;x<W+200;x+=90){let xx=x-(worldX*.12%90);ctx.fillStyle='#0a2921';ctx.beginPath();ctx.moveTo(xx,H-65);ctx.lineTo(xx+35,H-250);ctx.lineTo(xx+70,H-65);ctx.fill()}
+ // vines / foreground
+ ctx.fillStyle='#061b15';ctx.fillRect(0,H-72,W,72);
+ // platforms / roots
+ for(let x=-(worldX%150);x<W;x+=150){ctx.fillStyle='#5b3c24';ctx.fillRect(x,H-67,145,18);ctx.fillStyle='#7a522d';ctx.fillRect(x+8,H-64,130,5)}
+ // obstacles
+ for(const o of obs){
+  if(o.t==='log'){ctx.fillStyle='#694522';roundRect(o.x,o.y,o.w,o.h,10,true);ctx.fillStyle='#c68a43';ctx.beginPath();ctx.arc(o.x+o.w/2,o.y+8,12,0,7);ctx.fill();ctx.fillStyle='#2d1a12';ctx.fillText('⚠',o.x+10,o.y+40)}
+  else if(o.t==='trap'){ctx.fillStyle='#d6bd75';ctx.beginPath();for(let x=0;x<5;x++){ctx.moveTo(o.x+x*14,o.y+28);ctx.lineTo(o.x+7+x*14,o.y);ctx.lineTo(o.x+14+x*14,o.y+28)}ctx.fill()}
+  else {ctx.font='38px serif';ctx.fillText('🦇',o.x,o.y+34)}
+ }
+ // items
+ for(const i of items){ctx.save();ctx.translate(i.x,i.y);ctx.rotate(Math.sin(i.spin)*.3);ctx.font='28px serif';ctx.fillText('🍃',-14,10);ctx.restore()}
+ // player
+ drawTiger(player.x,player.y,player.inv>0 && Math.floor(player.inv*12)%2===0);
+ for(const p of particles){ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle='#f5ce63';ctx.beginPath();ctx.arc(p.x,p.y,4,0,7);ctx.fill();ctx.globalAlpha=1}
+}
+function roundRect(x,y,w,h,r,fill){ctx.beginPath();ctx.roundRect(x,y,w,h,r);if(fill)ctx.fill()}
+
+function drawTiger(x,y,blink){
+ ctx.save();if(blink)ctx.globalAlpha=.35;
+ // tail
+ ctx.strokeStyle='#c98243';ctx.lineWidth=11;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x+8,y+45);ctx.quadraticCurveTo(x-22,y+20,x+7,y+7);ctx.stroke();
+ // body
+ ctx.fillStyle='#c98243';roundRect(x+10,y+20,54,38,18,true);
+ // legs
+ ctx.fillStyle='#a86638';roundRect(x+16,y+48,12,23,6,true);roundRect(x+50,y+47,12,24,6,true);
+ // head
+ ctx.fillStyle='#d4914e';ctx.beginPath();ctx.arc(x+59,y+23,25,0,7);ctx.fill();
+ // ears
+ ctx.beginPath();ctx.moveTo(x+42,y+7);ctx.lineTo(x+45,y-10);ctx.lineTo(x+56,y+3);ctx.fill();ctx.beginPath();ctx.moveTo(x+64,y+2);ctx.lineTo(x+76,y-9);ctx.lineTo(x+77,y+13);ctx.fill();
+ // cloud spots
+ ctx.fillStyle='#4b3026';[[24,30],[43,25],[31,47],[52,43],[60,17],[70,29]].forEach(([a,b])=>{ctx.beginPath();ctx.arc(x+a,y+b,5,0,7);ctx.fill()});
+ // face
+ ctx.fillStyle='#17130e';ctx.beginPath();ctx.arc(x+52,y+20,3,0,7);ctx.arc(x+68,y+20,3,0,7);ctx.fill();
+ ctx.fillStyle='#f3d8ad';ctx.beginPath();ctx.arc(x+60,y+30,9,0,7);ctx.fill();ctx.fillStyle='#21140e';ctx.beginPath();ctx.arc(x+60,y+27,3,0,7);ctx.fill();
+ ctx.restore();
+}
+function loop(t){if(!run)return;let dt=Math.min(.032,(t-last)/1000);last=t;update(dt);draw();requestAnimationFrame(loop)}
+draw();
+</script>
+</body>
+</html>
